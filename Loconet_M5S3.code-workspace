@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "LoconetMonitor",
+			"path": "examples/LoconetMonitor"
+		}
+	],
+	"settings": {}
+}

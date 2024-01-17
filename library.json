@@ -1,0 +1,37 @@
+{
+	"name": "Loconet_M5S3",
+	"version": "0.1.0",
+	"description": "This library will send and receive loconet messages over different hardware like: physical bus, serial, USB",
+	"keywords": "loconet",
+	"authors":
+	{
+		"name": "Michael Pfeil",
+		"email": "Michael@Fam-Pfeil.de"
+	},
+	"license": "MIT",
+	"frameworks": [ "espidf", "freertos" ],
+	"platforms": "espressif32",
+	"headers":
+		[
+			"ln_opc.h",
+			"LoconetBus.h",
+			"LoconetMsgBuffer.h",
+			"LoconetConsumerSwitchSensor.h",
+			"LoconetPhyUART.h"
+		],
+	"examples":
+	[
+		{
+			"name": "LoconetMonitor",
+			"base": "examples/LoconetMonitor",
+			"files":
+				[
+					"CMakeLists.txt",
+					"platformio.ini",
+					"sdkconfig.m5stack-stamps3",
+					"src/CMakeLists.txt",
+					"src/LoconetMonitor.c"
+				]
+		}
+	]
+}
