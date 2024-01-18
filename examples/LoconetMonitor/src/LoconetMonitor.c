@@ -82,6 +82,7 @@ void app_main()
 	//------------------------------------------------------------------
 	//	initialize structures
 	//
+	theUart.pBus		= &theBus;
 	theUart.uartNum		= 2;
 	theUart.rxPin		= 1;
 	theUart.txPin		= 3;
@@ -89,7 +90,7 @@ void app_main()
 	theUart.invertTx	= false;
 
 	loconet_bus_init( &theBus );
-	loconet_phy_uart_init( &theUart, &theBus );
+	loconet_phy_uart_init( &theUart );
 	loconet_consumer_switch_sensor_init( &theSwitchSensorHandler, &theBus );
 
 	//------------------------------------------------------------------

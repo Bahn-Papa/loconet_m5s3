@@ -70,16 +70,12 @@
 
 //==========================================================================
 //
-//		T Y P E   D E F I N I T I O N S
-//
-//==========================================================================
-
-
-//==========================================================================
-//
 //		G L O B A L   V A R I A B L E S
 //
 //==========================================================================
+
+StaticTask_t	xTaskBuffer;
+StackType_t		xStack[ 200 ];
 
 StaticQueue_t	rxQueueBuffer;
 StaticQueue_t	txQueueBuffer;
@@ -103,6 +99,11 @@ uart_config_t uart_config =
 //
 //==========================================================================
 
+//**************************************************************************
+//	did_collision_happen_since_last_check
+//--------------------------------------------------------------------------
+//	description
+//
 bool did_collision_happen_since_last_check( loconet_phy_uart_t *pUart )
 {
 	bool	isCollision;
@@ -116,14 +117,95 @@ bool did_collision_happen_since_last_check( loconet_phy_uart_t *pUart )
 
 
 //**************************************************************************
+//	startCollisionTimer
+//--------------------------------------------------------------------------
+//	description
+//
+void startCollisionTimer( loconet_phy_uart_t *pUart )
+{
+	pUart->state			= TX_COLLISION;
+	pUart->collisionTimeout	= (uint64_t)esp_timer_get_time() + LOCONET_COLLISION_TICKS;
+}
+
+
+//**************************************************************************
+//	isCollisionTimerElapsed
+//--------------------------------------------------------------------------
+//	description
+//
+bool isCollisionTimerElapsed( loconet_phy_uart_t *pUart )
+{
+	return( (uint64_t)esp_timer_get_time() > pUart->collisionTimeout );
+}
+
+
+//**************************************************************************
+//	startCDBackoffTimer
+//--------------------------------------------------------------------------
+//	description
+//
+void startCDBackoffTimer( loconet_phy_uart_t *pUart )
+{
+	pUart->state			= CD_BACKOFF;
+	pUart->cdBackoffStart	= (uint64_t)esp_timer_get_time();
+	pUart->cdBackoffTimeout	= pUart->cdBackoffStart + LOCONET_TICK_TIME;
+}
+
+
+//**************************************************************************
+//	isCDBackoffTimerElapsed
+//--------------------------------------------------------------------------
+//	description
+//
+bool isCDBackoffTimerElapsed( loconet_phy_uart_t *pUart )
+{
+	return( (uint64_t)esp_timer_get_time() > pUart->cdBackoffTimeout );
+}
+
+
+//**************************************************************************
 //	loconet_phy_uart_rxtx_task
 //--------------------------------------------------------------------------
 //	description
 //
 void loconet_phy_uart_rxtx_task( void *pParameter )
 {
+	loconet_phy_uart_t	*pUart;
+	LnMsg				*pMsg;
+	uint8_t				dataByte;
+
+	pUart = (loconet_phy_uart_t *)pParameter;
+
 	while( 1 )
 	{
+		if( 0 < uart_read_bytes( pUart->uartNum, &dataByte, (uint32_t)1, 0 ) )
+		{
+			pUart->state = RX;
+
+			do
+			{
+				pMsg = loconet_msg_buffer_add_byte( &(pUart->rxMsg), dataByte );
+
+				if( NULL != pMsg )
+				{
+					xQueueSendToBack( pUart->rxQueue, (void *)pMsg, 0 );
+				}
+
+			} while ( 0 < uart_read_bytes( pUart->uartNum, &dataByte, (uint32_t)1, 0 ) );
+
+			startCDBackoffTimer( pUart );
+		}
+		else if( (RX == pUart->state) && isCDBackoffTimerElapsed( pUart ) )
+		{
+			pUart->state = IDLE;
+		}
+		else if( IDLE == pUart->state )
+		{
+		}
+		else if( (TX_COLLISION == pUart->state) && isCollisionTimerElapsed( pUart ) )
+		{
+			startCDBackoffTimer( pUart );
+		}
 	}
 }
 
@@ -139,13 +221,13 @@ void loconet_phy_uart_rxtx_task( void *pParameter )
 //--------------------------------------------------------------------------
 //	description
 //
-void loconet_phy_uart_init( loconet_phy_uart_t *pUart, loconet_bus_t *pBus )
+void loconet_phy_uart_init( loconet_phy_uart_t *pUart )
 {
 	pUart->rxQueue	= xQueueCreateStatic( RX_QUEUE_LENGTH, sizeof( LnMsg ), rxQueueStorage, &rxQueueBuffer );
 	pUart->txQueue	= xQueueCreateStatic( TX_QUEUE_LENGTH, sizeof( LnMsg ), txQueueStorage, &txQueueBuffer );
 
 	loconet_msg_buffer_init( &(pUart->rxMsg) );
-	loconet_bus_register_consumer( pBus, pUart, loconet_phy_uart_send );
+	loconet_bus_register_consumer( pUart->pBus, pUart, loconet_phy_uart_send );
 
 	ESP_ERROR_CHECK( uart_param_config( pUart->uartNum, &uart_config ) );
 	ESP_ERROR_CHECK( uart_set_pin( pUart->uartNum, pUart->txPin, pUart->rxPin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE ) );

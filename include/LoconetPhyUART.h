@@ -94,6 +94,7 @@ typedef struct loconet_phy_uart
 	loconet_msg_buffer_t	rxMsg;
 	LnMsg 					txMsg;
 	ln_tx_rx_status_t		state;
+	uint64_t				cdBackoffStart;
 	uint64_t				cdBackoffTimeout;
 	uint64_t				collisionTimeout;
 
@@ -106,6 +107,6 @@ typedef struct loconet_phy_uart
 //
 //==========================================================================
 
-extern void loconet_phy_uart_init( loconet_phy_uart_t *pUart, loconet_bus_t *pBus );
+extern void loconet_phy_uart_init( loconet_phy_uart_t *pUart );
 
 extern void loconet_phy_uart_send( loconet_bus_consumer pConsumer, LnMsg *pMsg );
