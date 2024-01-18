@@ -54,6 +54,25 @@ loconet_consumer_switch_sensor_t	theSwitchSensorHandler;
 //==========================================================================
 
 //**************************************************************************
+//	printRawData
+//--------------------------------------------------------------------------
+//	description
+//
+void printRawData( LnMsg *pMsg )
+{
+	uint8_t	length	= LOCONET_PACKET_SIZE( pMsg->data[ 0 ], pMsg->data[ 1 ] );
+
+	printf( "  raw: [" );
+
+	for( uint8_t idx = 0 ; idx < length ; idx++ )
+	{
+		printf( " %02X ", pMsg->data[ idx ] );
+	}
+
+	printf( "]\n" );
+}
+
+//**************************************************************************
 //	app_main
 //--------------------------------------------------------------------------
 //	description
@@ -63,6 +82,12 @@ void app_main()
 	//------------------------------------------------------------------
 	//	initialize structures
 	//
+	theUart.uartNum		= 2;
+	theUart.rxPin		= 1;
+	theUart.txPin		= 3;
+	theUart.invertRx	= false;
+	theUart.invertTx	= false;
+
 	loconet_bus_init( &theBus );
 	loconet_phy_uart_init( &theUart, &theBus );
 	loconet_consumer_switch_sensor_init( &theSwitchSensorHandler, &theBus );

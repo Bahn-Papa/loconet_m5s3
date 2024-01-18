@@ -38,7 +38,7 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
-//#include <esp32-hal-uart.h>
+#include <hal/uart_hal.h>
 
 #include "LoconetPhyUART.h"
 
@@ -109,7 +109,7 @@ bool did_collision_happen_since_last_check( loconet_phy_uart_t *pUart )
 
 	uart_get_collision_flag( pUart->uartNum, &isCollision );
 
-	UART2.int_clr.rs485_clash = 1;		//	clear bit
+	UART2.int_clr.rs485_clash_int_clr = 1;		//	clear bit
 
 	return( isCollision );
 }
@@ -147,13 +147,13 @@ void loconet_phy_uart_init( loconet_phy_uart_t *pUart, loconet_bus_t *pBus )
 	loconet_msg_buffer_init( &(pUart->rxMsg) );
 	loconet_bus_register_consumer( pBus, pUart, loconet_phy_uart_send );
 
-	ESP_ERROR_CHECK( uart_param_config( UART_NUM_2, &uart_config ) );
-	ESP_ERROR_CHECK( uart_set_pin( UART_NUM_2, pUart->txPin, pUart->rxPin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE ) );
-	ESP_ERROR_CHECK( uart_driver_install( UART_NUM_2, 0, 0, 0, NULL, 0 ) );
+	ESP_ERROR_CHECK( uart_param_config( pUart->uartNum, &uart_config ) );
+	ESP_ERROR_CHECK( uart_set_pin( pUart->uartNum, pUart->txPin, pUart->rxPin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE ) );
+	ESP_ERROR_CHECK( uart_driver_install( pUart->uartNum, 0, 0, 0, NULL, 0 ) );
 
-	uart_set_mode( UART_NUM_2, UART_MODE_RS485_APP_CTRL );
-	UART2.rs485_conf.rx_busy_tx_en	= 0;	//	don't send while receiving => collision avoidance
-	UART2.rs485_conf.tx_rx_en		= 1;	//	loopback (1), so collision detection works
+	uart_set_mode( pUart->uartNum, UART_MODE_RS485_APP_CTRL );
+	UART2.rs485_conf.rs485rxby_tx_en	= 0;	//	don't send while receiving => collision avoidance
+	UART2.rs485_conf.rs485tx_rx_en		= 1;	//	loopback (1), so collision detection works
 }
 
 
@@ -161,8 +161,8 @@ void loconet_phy_uart_init( loconet_phy_uart_t *pUart, loconet_bus_t *pBus )
 //	loconet_phy_uart_process
 //--------------------------------------------------------------------------
 //	this function will check if we got a new loconet message over
-//	the physical lines. If so, then the message will be spread over
-//	the bus to all other consumers, but not for us.
+//	the physical lines. If so, the message will be spread over the bus
+//	to all other consumers, but not to us.
 //
 //	NOTE:
 //	this function should be called in a periodical manner to get
@@ -172,7 +172,7 @@ void loconet_phy_uart_process( loconet_phy_uart_t *pUart )
 {
 	LnMsg	aMsg;
 
-	if( uxQueueMessageWaiting( pUart->rxQueue ) )
+	if( uxQueueMessagesWaiting( pUart->rxQueue ) )
 	{
 		//--------------------------------------------------------------
 		//	we received a loconet msg
