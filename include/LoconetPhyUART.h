@@ -90,13 +90,17 @@ typedef struct loconet_phy_uart
 	uint8_t					txPin;
 	bool					invertRx;
 	bool					invertTx;
-
+	uint8_t					cntTry;
+	
 	loconet_msg_buffer_t	rxMsg;
 	LnMsg 					txMsg;
 	ln_tx_rx_status_t		state;
 	uint64_t				cdBackoffStart;
 	uint64_t				cdBackoffTimeout;
 	uint64_t				collisionTimeout;
+
+	uint32_t				cntCollisionError;
+	uint32_t				cntRetryError;
 
 } loconet_phy_uart_t;
 

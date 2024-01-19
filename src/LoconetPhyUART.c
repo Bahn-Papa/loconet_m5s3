@@ -39,6 +39,7 @@
 #include <stdbool.h>
 
 #include <hal/uart_hal.h>
+#include <esp_timer.h>
 
 #include "LoconetPhyUART.h"
 
@@ -48,6 +49,8 @@
 //		D E F I N I T I O N S
 //
 //==========================================================================
+
+#define TASK_STACK_SIZE					200
 
 #define RX_QUEUE_LENGTH					64
 #define TX_QUEUE_LENGTH					32
@@ -75,7 +78,7 @@
 //==========================================================================
 
 StaticTask_t	xTaskBuffer;
-StackType_t		xStack[ 200 ];
+StackType_t		xStack[ TASK_STACK_SIZE ];
 
 StaticQueue_t	rxQueueBuffer;
 StaticQueue_t	txQueueBuffer;
@@ -110,7 +113,8 @@ bool did_collision_happen_since_last_check( loconet_phy_uart_t *pUart )
 
 	uart_get_collision_flag( pUart->uartNum, &isCollision );
 
-	UART2.int_clr.rs485_clash_int_clr = 1;		//	clear bit
+//	UART2.int_clr.rs485_clash_int_clr = 1;		//	clear bit
+	UART_LL_GET_HW( pUart->uartNum )->int_clr.rs485_clash_int_clr = 1;
 
 	return( isCollision );
 }
@@ -178,6 +182,9 @@ void loconet_phy_uart_rxtx_task( void *pParameter )
 
 	while( 1 )
 	{
+		//--------------------------------------------------------------
+		//	receive a loconet message if we can read a byte from UART
+		//
 		if( 0 < uart_read_bytes( pUart->uartNum, &dataByte, (uint32_t)1, 0 ) )
 		{
 			pUart->state = RX;
@@ -195,12 +202,87 @@ void loconet_phy_uart_rxtx_task( void *pParameter )
 
 			startCDBackoffTimer( pUart );
 		}
+		//--------------------------------------------------------------
+		//	after receiving a loconet message wait Backoff time
+		//	before we go back into IDLE state
+		//
 		else if( (RX == pUart->state) && isCDBackoffTimerElapsed( pUart ) )
 		{
 			pUart->state = IDLE;
 		}
+		//--------------------------------------------------------------
+		//	if we are in IDLE state, check if we should send a loconet
+		//	message and if so, then send the message
+		//
 		else if( IDLE == pUart->state )
 		{
+			if( 0x00 == pUart->txMsg.sz.command )
+			{
+				//--------------------------------------------------
+				//	the txMsg is empty so check if there is a
+				//	new loconet message pending
+				//
+				if( uxQueueMessagesWaiting( pUart->rxQueue ) )
+				{
+					//----------------------------------------------
+					//	we should send a loconet msg
+					//
+					xQueueReceive( pUart->txQueue, &(pUart->txMsg), 0 );
+
+					pUart->cntTry	= 25;
+					pUart->state	= TX;
+				}
+			}
+			else
+			{
+				//--------------------------------------------------
+				//	we should still try to send the loconet message
+				//
+				pUart->state	= TX;
+			}
+
+			if( TX == pUart->state )
+			{
+				uint8_t	sendByte;
+				uint8_t	recvByte;
+				uint8_t	length = LOCONET_PACKET_SIZE( pUart->txMsg.sz.command, pUart->txMsg.sz.mesg_size );
+
+				for( uint8_t idx = 0 ; (idx < length) && (TX == pUart->state) ; idx++ )
+				{
+					sendByte = pUart->txMsg.data[ idx ];
+
+					uart_write_bytes( pUart->uartNum, &sendByte, 1 );
+
+					while( 0 < uart_read_bytes( pUart->uartNum, &recvByte, (uint32_t)1, 0 ) )
+					{
+						;	//	just wait until we receive one byte
+					}
+					
+					if( (sendByte != recvByte) || did_collision_happen_since_last_check( pUart ) )
+					{
+						startCollisionTimer( pUart );
+
+						pUart->cntTry--;
+						pUart->cntCollisionError++;
+					}
+				}
+
+				if( TX == pUart->state )
+				{
+					//--------------------------------------------------
+					//	sending of loconet message successfuly done
+					//
+					startCDBackoffTimer( pUart );
+				}
+				else if( 0 == pUart->cntTry )
+				{
+					//--------------------------------------------------
+					//	all tries are used up, so discard the message
+					//
+					pUart->txMsg.sz.command = 0x00;
+					pUart->cntRetryError++;
+				}
+			}
 		}
 		else if( (TX_COLLISION == pUart->state) && isCollisionTimerElapsed( pUart ) )
 		{
@@ -226,6 +308,11 @@ void loconet_phy_uart_init( loconet_phy_uart_t *pUart )
 	pUart->rxQueue	= xQueueCreateStatic( RX_QUEUE_LENGTH, sizeof( LnMsg ), rxQueueStorage, &rxQueueBuffer );
 	pUart->txQueue	= xQueueCreateStatic( TX_QUEUE_LENGTH, sizeof( LnMsg ), txQueueStorage, &txQueueBuffer );
 
+	for( uint8_t idx = 0 ; sizeof( LnMsg ) > idx ; idx++ )
+	{
+		pUart->txMsg.data[ idx ] = 0;
+	}
+
 	loconet_msg_buffer_init( &(pUart->rxMsg) );
 	loconet_bus_register_consumer( pUart->pBus, pUart, loconet_phy_uart_send );
 
@@ -234,8 +321,21 @@ void loconet_phy_uart_init( loconet_phy_uart_t *pUart )
 	ESP_ERROR_CHECK( uart_driver_install( pUart->uartNum, 0, 0, 0, NULL, 0 ) );
 
 	uart_set_mode( pUart->uartNum, UART_MODE_RS485_APP_CTRL );
-	UART2.rs485_conf.rs485rxby_tx_en	= 0;	//	don't send while receiving => collision avoidance
-	UART2.rs485_conf.rs485tx_rx_en		= 1;	//	loopback (1), so collision detection works
+//	UART2.rs485_conf.rs485rxby_tx_en	= 0;	//	don't send while receiving => collision avoidance
+//	UART2.rs485_conf.rs485tx_rx_en		= 1;	//	loopback (1), so collision detection works
+	UART_LL_GET_HW( pUart->uartNum )->rs485_conf.rs485rxby_tx_en	= 0;
+	UART_LL_GET_HW( pUart->uartNum )->rs485_conf.rs485tx_rx_en		= 1;
+
+	pUart->state = IDLE;
+
+	pUart->rxtxTask = xTaskCreateStaticPinnedToCore(	loconet_phy_uart_rxtx_task,
+														"LN_tx_rx",
+														TASK_STACK_SIZE,
+														(void *)pUart,
+														tskIDLE_PRIORITY,
+														xStack,
+														&xTaskBuffer,
+														PRO_CPUID						);
 }
 
 
