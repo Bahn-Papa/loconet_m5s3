@@ -40,6 +40,7 @@
 
 #include <hal/uart_hal.h>
 #include <esp_timer.h>
+#include <driver/gpio.h>
 
 #include "LoconetPhyUART.h"
 
@@ -50,7 +51,7 @@
 //
 //==========================================================================
 
-#define TASK_STACK_SIZE					200
+#define TASK_STACK_SIZE					1024
 
 #define RX_QUEUE_LENGTH					64
 #define TX_QUEUE_LENGTH					32
@@ -272,6 +273,9 @@ void loconet_phy_uart_rxtx_task( void *pParameter )
 					//--------------------------------------------------
 					//	sending of loconet message successfuly done
 					//
+					pUart->txMsg.sz.command		= 0x00;
+					pUart->txMsg.sz.mesg_size	= 0;
+
 					startCDBackoffTimer( pUart );
 				}
 				else if( 0 == pUart->cntTry )
@@ -279,14 +283,26 @@ void loconet_phy_uart_rxtx_task( void *pParameter )
 					//--------------------------------------------------
 					//	all tries are used up, so discard the message
 					//
-					pUart->txMsg.sz.command = 0x00;
+					pUart->txMsg.sz.command		= 0x00;
+					pUart->txMsg.sz.mesg_size	= 0;
 					pUart->cntRetryError++;
 				}
 			}
 		}
 		else if( (TX_COLLISION == pUart->state) && isCollisionTimerElapsed( pUart ) )
 		{
+			//----------------------------------------------------------
+			//	go back to normal operating mode
+			//
+			gpio_set_level( pUart->txPin, (pUart->invertTx ? 1 : 0) );
 			startCDBackoffTimer( pUart );
+		}
+		else
+		{
+			//----------------------------------------------------------
+			//	set Uart Tx to break level
+			//
+			gpio_set_level( pUart->txPin, (pUart->invertTx ? 0 : 1) );
 		}
 	}
 }
@@ -305,6 +321,18 @@ void loconet_phy_uart_rxtx_task( void *pParameter )
 //
 void loconet_phy_uart_init( loconet_phy_uart_t *pUart )
 {
+	uint32_t	inversMask = 0;
+
+	if( pUart->invertRx )
+	{
+		inversMask |= UART_SIGNAL_RXD_INV;
+	}
+
+	if( pUart->invertTx )
+	{
+		inversMask |= UART_SIGNAL_TXD_INV;
+	}
+
 	pUart->rxQueue	= xQueueCreateStatic( RX_QUEUE_LENGTH, sizeof( LnMsg ), rxQueueStorage, &rxQueueBuffer );
 	pUart->txQueue	= xQueueCreateStatic( TX_QUEUE_LENGTH, sizeof( LnMsg ), txQueueStorage, &txQueueBuffer );
 
@@ -316,9 +344,14 @@ void loconet_phy_uart_init( loconet_phy_uart_t *pUart )
 	loconet_msg_buffer_init( &(pUart->rxMsg) );
 	loconet_bus_register_consumer( pUart->pBus, pUart, loconet_phy_uart_send );
 
+	ESP_ERROR_CHECK( uart_driver_install( pUart->uartNum, 512, 0, 0, NULL, 0 ) );
 	ESP_ERROR_CHECK( uart_param_config( pUart->uartNum, &uart_config ) );
 	ESP_ERROR_CHECK( uart_set_pin( pUart->uartNum, pUart->txPin, pUart->rxPin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE ) );
-	ESP_ERROR_CHECK( uart_driver_install( pUart->uartNum, 0, 0, 0, NULL, 0 ) );
+	
+	if( inversMask )
+	{
+		ESP_ERROR_CHECK( uart_set_line_inverse( pUart->uartNum, inversMask ) );
+	}
 
 	uart_set_mode( pUart->uartNum, UART_MODE_RS485_APP_CTRL );
 //	UART2.rs485_conf.rs485rxby_tx_en	= 0;	//	don't send while receiving => collision avoidance
@@ -335,7 +368,7 @@ void loconet_phy_uart_init( loconet_phy_uart_t *pUart )
 														tskIDLE_PRIORITY,
 														xStack,
 														&xTaskBuffer,
-														PRO_CPUID						);
+														0							);
 }
 
 

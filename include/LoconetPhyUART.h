@@ -114,3 +114,4 @@ typedef struct loconet_phy_uart
 extern void loconet_phy_uart_init( loconet_phy_uart_t *pUart );
 
 extern void loconet_phy_uart_send( loconet_bus_consumer pConsumer, LnMsg *pMsg );
+extern void loconet_phy_uart_process( loconet_phy_uart_t *pUart );

@@ -168,19 +168,23 @@ void loconet_consumer_switch_sensor_process( loconet_bus_consumer pConsumer, LnM
 	switch( pMsg->sr.command )
 	{
 		case OPC_INPUT_REP:
-			Address <<= 1;
-			Address += (pMsg->ir.in2 & OPC_INPUT_REP_SW) ? 2 : 1;
-
 			if( myConsumer->pNotifySensor )
 			{
-				(*myConsumer->pNotifySensor)( Address, pMsg->ir.in2 & OPC_INPUT_REP_HI );
+				Address <<= 1;
+				Address += (pMsg->ir.in2 & OPC_INPUT_REP_SW) ? 2 : 1;
+				Output	= pMsg->ir.in2 & OPC_INPUT_REP_HI;
+
+				(*myConsumer->pNotifySensor)( Address, Output );
 			}
 			break;
 
 		case OPC_SW_REQ:
 			if( myConsumer->pNotifySwitchRequest )
 			{
-				(*myConsumer->pNotifySwitchRequest)( Address, pMsg->srq.sw2 & OPC_SW_REQ_OUT, pMsg->srq.sw2 & OPC_SW_REQ_DIR );
+				Direction	= pMsg->srq.sw2 & OPC_SW_REQ_DIR;
+				Output		= pMsg->srq.sw2 & OPC_SW_REQ_OUT;
+
+				(*myConsumer->pNotifySwitchRequest)( Address, Output, Direction );
 			}
 			break;
 
@@ -189,24 +193,30 @@ void loconet_consumer_switch_sensor_process( loconet_bus_consumer pConsumer, LnM
 			{
 				if( myConsumer->pNotifySwitchReport )
 				{
-					(*myConsumer->pNotifySwitchReport)( Address, pMsg->srp.sn2 & OPC_SW_REP_HI, pMsg->srp.sn2 & OPC_SW_REP_SW );
+					Direction	= pMsg->srp.sn2 & OPC_SW_REP_SW;
+					Output		= pMsg->srp.sn2 & OPC_SW_REP_HI;
+
+					(*myConsumer->pNotifySwitchReport)( Address, Output, Direction );
 				}
 			}
 			else
 			{
 				if( myConsumer->pNotifySwitchOutputs )
 				{
-					(*myConsumer->pNotifySwitchOutputs)( Address, pMsg->srp.sn2 & OPC_SW_REP_CLOSED, pMsg->srp.sn2 & OPC_SW_REP_THROWN);
+					Direction	= pMsg->srp.sn2 & OPC_SW_REP_THROWN;
+					Output		= pMsg->srp.sn2 & OPC_SW_REP_CLOSED;
+
+					(*myConsumer->pNotifySwitchOutputs)( Address, Output, Direction );
 				}
 			}
 			break;
 
 		case OPC_SW_STATE:
-			Direction = pMsg->srq.sw2 & OPC_SW_REQ_DIR;
-			Output = pMsg->srq.sw2 & OPC_SW_REQ_OUT;
-
 			if( myConsumer->pNotifySwitchState )
 			{
+				Direction	= pMsg->srq.sw2 & OPC_SW_REQ_DIR;
+				Output		= pMsg->srq.sw2 & OPC_SW_REQ_OUT;
+
 				(*myConsumer->pNotifySwitchState)( Address, Output, Direction);
 			}
 			break;
